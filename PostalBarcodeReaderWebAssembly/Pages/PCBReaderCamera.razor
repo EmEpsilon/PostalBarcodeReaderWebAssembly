@@ -1,0 +1,273 @@
+﻿@page "/pcb-reader-camera"
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Drawing
+@using SixLabors.ImageSharp.Drawing.Processing
+@using SixLabors.ImageSharp.Processing;
+@using SixLabors.ImageSharp.Formats.Jpeg
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+@implements IAsyncDisposable
+
+<h3>カスタマバーコード カメラ読み込み</h3>
+<ul>
+    <li>カメラの権限を求められた場合、許可してください。</li>
+    <li>カメラ映像が表示されたら、明るい場所でカスタマバーコード全体が映像中央に大きく映るように調整してください。</li>
+    <li>カメラ映像が表示されない場合は、「カメラモード(リア・フェイス)切り替え」ボタンを押してください。</li>
+</ul>
+@if (!string.IsNullOrEmpty(cb))
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">カスタマバーコードの内容</th>
+                <th scope="col">郵便局の郵便番号情報(リンク)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>@Utils.FormatCustomerBarcode(cb)</td>
+                <td>
+                    <a href="@Utils.GetPostalZipURL(cb)" target="_blank" rel="noopener noreferrer">@Utils.GetFormatedZipCodeFromCustomerBarcode(cb)</a>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+}
+<video id="videoID" class="stream" width="@videoWidth" height="@videoHeight" style="display: @canvasInverseDisplay ;" />
+<canvas class="img-fluid" @ref="displayCanvas" id="displayCanvas" width="@videoWidth" height="@videoHeight" style="border:1px solid gray; display: none; ">
+    Your browser does not support the HTML5 canvas tag.
+</canvas>
+<canvas class="img-fluid" @ref="resultCanvas" width="@videoWidth" height="@videoHeight" style="border:1px solid gray; display: @canvasDisplay; ">
+    Your browser does not support the HTML5 canvas tag.
+</canvas>
+<div>
+    <button class="btn btn-primary mb-3" @onclick="ChangeVideoMode">カメラモード(リア・フェイス)切り替え</button>
+    <button class="btn btn-secondary mb-3" @onclick="Rescan">再読取り</button>
+</div>
+<canvas class="d-none" id="currentFrame" width="@videoWidth" height="@videoHeight" />
+
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert alert-info">
+        <span class="text-nowrap">@message</span>
+    </div>
+}
+
+
+@code {
+
+    private string message;
+    private bool flgStopLoop;
+    private bool isProcessing;
+    private bool isProcessingForDisplay;
+    private OpenCvSharp.Mat matResult;
+    private string cb;
+    private ElementReference resultCanvas;
+    private CanvasClient? resultCanvasClient;
+    private ElementReference displayCanvas;
+    private CanvasClient? displayCanvasClient;
+    private List<Task> listTask;
+
+    private string videoWidth = "800";
+    private string videoHeight = "600";
+
+    public void Dispose()
+    {
+        matResult?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        flgStopLoop = true;
+        Task.WhenAll(listTask);
+        await JSRuntime.InvokeVoidAsync("stopVideo");
+    }
+
+    private string canvasDisplay
+    {
+        get
+        {
+            if ((!string.IsNullOrEmpty(cb)))
+            {
+                return "block";
+            }
+            else
+            {
+                return "none";
+            }
+        }
+    }
+
+    private string canvasInverseDisplay
+    {
+        get
+        {
+            if ((string.IsNullOrEmpty(cb)))
+            {
+                return "block";
+            }
+            else
+            {
+                return "none";
+            }
+        }
+    }
+
+    private string postalZipURL
+    {
+        get
+        {
+            return Utils.GetPostalZipURL(cb);
+
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        resultCanvasClient ??= new CanvasClient(JSRuntime, resultCanvas);
+        displayCanvasClient ??= new CanvasClient(JSRuntime, displayCanvas);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        flgStopLoop = false;
+        await JSRuntime.InvokeVoidAsync("setVideoSize", videoWidth, videoHeight);
+        await JSRuntime.InvokeVoidAsync("startVideo", "videoID", DotNetObjectReference.Create(this));
+        listTask = new List<Task>();
+        listTask.Add(Task.Run(() => LoopProcess()));
+    }
+
+    private async Task LoopProcess()
+    {
+        while (true)
+        {
+            if (flgStopLoop) { break; }
+            await Task.Delay(10);
+            if (string.IsNullOrEmpty(cb))
+            {
+                if (!isProcessing)
+                {
+                    isProcessing = true;
+                    await JSRuntime.InvokeVoidAsync("getVideoFrame", "currentFrame", DotNetObjectReference.Create(this));
+                }
+                if (!isProcessingForDisplay)
+                {
+                    isProcessingForDisplay = true;
+                    //await JSRuntime.InvokeVoidAsync("getVideoFrameForDisplay", "currentFrame", DotNetObjectReference.Create(this));
+                }
+            }
+        }
+    }
+
+    private async Task ChangeVideoMode()
+    {
+        await JSRuntime.InvokeVoidAsync("changeVideoMode", "videoID", DotNetObjectReference.Create(this));
+    }
+
+    private async Task Rescan()
+    {
+        await resultCanvasClient.ClearPixelAsync();
+        cb = string.Empty;
+        StateHasChanged();
+        await Task.Delay(10);
+    }
+
+    [JSInvokable]
+    public void TrunOffProcessing()
+    {
+        isProcessing = false;
+        isProcessingForDisplay = false;
+    }
+
+    [JSInvokable]
+    public async Task SetSize(int width, int height)
+    {
+        videoWidth = width.ToString();
+        videoHeight = height.ToString();
+        StateHasChanged();
+        await Task.Delay(10);
+    }
+
+    [JSInvokable]
+    public async Task DisplayImage(string imageURI)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessingForDisplay = false;
+            return;
+        }
+
+        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
+
+        byte[] imageData = Convert.FromBase64String(imageBase64);
+        System.IO.MemoryStream ms = new System.IO.MemoryStream();
+        Image.Load(imageData).SaveAsBmp(ms);
+        using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
+        {
+            OpenCvSharp.Mat dst = src.Clone();
+            var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+
+            // Mask
+            OpenCvSharp.Mat mask = OpenCvSharp.Mat.Zeros(src.Size(), src.Type());
+            mask += new OpenCvSharp.Scalar(200, 200, 200);
+            OpenCvSharp.Cv2.Rectangle(mask, targetRect, new OpenCvSharp.Scalar(0, 0, 0), -1);
+            dst -= mask / 2;
+
+            OpenCvSharp.Cv2.Line(dst, new OpenCvSharp.Point(0, dst.Rows / 2), new OpenCvSharp.Point(dst.Cols, dst.Rows / 2), new OpenCvSharp.Scalar(0, 0, 255), 2);
+            await displayCanvasClient.DrawMatAsync(dst);
+        }
+
+        StateHasChanged();
+        isProcessingForDisplay = false;
+    }
+
+    [JSInvokable]
+    public async Task ProcessImage(string imageURI)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessing = false;
+            return;
+        }
+
+        var wTask = Task.Run<bool>(async () =>
+        {
+
+            var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
+
+            byte[] imageData = Convert.FromBase64String(imageBase64);
+            System.IO.MemoryStream ms = new System.IO.MemoryStream();
+            Image.Load(imageData).SaveAsBmp(ms);
+            using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
+            {
+                List<PostalBarcodeReader.StructHit> listSHit;
+                var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+                PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
+                if (listSHit.Count == 0)
+                {
+                }
+                else
+                {
+                    this.matResult = src.Clone();
+                    foreach (var data in listSHit)
+                    {
+                        OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+                        cb = data.decoded;
+                    }
+                    await resultCanvasClient.DrawMatAsync(matResult);
+                }
+            }
+            return true;
+        });
+
+        await wTask;
+
+        StateHasChanged();
+        isProcessing = false;
+    }
+
+}

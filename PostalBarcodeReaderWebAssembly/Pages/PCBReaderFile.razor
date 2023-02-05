@@ -1,0 +1,237 @@
+﻿@page "/pcb-reader-file"
+@using Microsoft.Extensions.Logging
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Drawing
+@using SixLabors.ImageSharp.Drawing.Processing
+@using SixLabors.ImageSharp.Formats.Png
+@using SixLabors.ImageSharp.Processing
+@inject IJSRuntime JSRuntime;
+@implements IDisposable
+
+<h3>カスタマバーコード　ファイル読み込み</h3>
+<p class="text-start">対応しているファイル形式は、jpeg png bmpです。</p>
+<p class="text-start">カスタマバーコードが大きく見える、明るい場所で撮影した画像を使用してください。</p>
+<InputFile class="form-control mb-3" OnChange="@UploadImage" accept="image/jpeg,image/png,image/bmp" />
+<!--
+<input id="upload_image" class="form-control mb-3" type="file" accept="image/jpeg,image/png,image/bmp" />
+-->
+@if (isLoading)
+{
+    <div class="alert alert-secondary">
+        <span class="text-nowrap">読み込み中…</span>
+    </div>
+}
+else if(!isProcessing && !isDone)
+{
+    @if (!string.IsNullOrEmpty(imageURI))
+    {
+        <div class="alert alert-success">
+            <span class="text-nowrap">画像のプレビュー</span>
+        </div>
+        <img class="img-fluid" src="@imageURI" width="700" border="1" />
+        <div style="margin-top: 1em;" >
+            <button class="btn btn-primary mb-3" onclick="@(async () => await ProcessDetectCB())" >読み取り開始</button>
+        </div>
+    }
+}
+
+@if ( !isLoading )
+{
+    @if (isProcessing)
+    {
+        <div class="alert alert-secondary">
+            <span class="text-nowrap">カスタマバーコード　読み取り中…</span>
+        </div>
+    }
+    else
+    {
+        @if (isDone)
+        {
+            @if (!string.IsNullOrEmpty(cb))
+            {
+                <table class="table">
+                    <thead>
+                            <tr>
+                                <th scope="col">No.</th>
+                                <th scope="col">カスタマバーコードの内容</th>
+                                <th scope="col">郵便局の郵便番号情報(リンク)</th>
+                            </tr>
+                    </thead>
+                @for(int i=0; i<listCb.Count; i++)
+                {
+                    <tbody>
+                        <tr>
+                            <th scope="row">@(i+1)</th>
+                            <td>@Utils.FormatCustomerBarcode(listCb[i])</td>
+                            <td>
+                                <a href="@Utils.GetPostalZipURL(listCb[i])" target="_blank" rel="noopener noreferrer">@Utils.GetFormatedZipCodeFromCustomerBarcode(listCb[i])</a>
+                            </td>
+                        </tr>
+                    </tbody>
+                }
+                </table>
+            }
+            else
+            {
+                <p>対象の画像にカスタマバーコードがありませんでした。</p>
+            }
+        }
+
+    }
+}
+<div style="display: @canvasDisplay ;">
+    <canvas class="img-fluid" @ref="resultCanvas" width="@canvasWidth" height="@canvasHeight" style="border:1px solid gray;">
+        Your browser does not support the HTML5 canvas tag.
+    </canvas>
+</div>
+
+
+@if( !string.IsNullOrEmpty(message))
+{
+    <div class="alert alert-info">
+        <span class="text-nowrap">@message</span>
+    </div>
+}
+@if( !string.IsNullOrEmpty(eMessage))
+{
+    <div class="alert alert-danger">
+        <span class="text-nowrap">@eMessage</span>
+    </div>
+}
+
+@code {
+    private string imageURI;
+    private bool isLoading;
+    private bool isProcessing;
+    private bool isDone;
+    private OpenCvSharp.Mat matResult;
+    private string cb;
+    private List<string> listCb;
+    private string eMessage;
+    private string message;
+    private string canvasWidth = "700";
+    private string canvasHeight = "700"; //仮
+    private ElementReference resultCanvas;
+    private CanvasClient? resultCanvasClient;
+
+    public void Dispose()
+    {
+        matResult?.Dispose();
+    }
+
+    private string canvasDisplay
+    {
+        get
+        {
+            if ((isDone && !string.IsNullOrEmpty(cb)))
+            {
+                return "block";
+            }
+            else
+            {
+                return "none";
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        listCb = new List<string>();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        resultCanvasClient ??= new CanvasClient(JSRuntime, resultCanvas);
+    }
+
+    private async Task UploadImage(InputFileChangeEventArgs e)
+    {
+        isLoading = true;
+        imageURI = "";
+        cb = "";
+        isDone = false;
+        long maxFileSize = 10 * 1024 * 1024; // 10MB
+        StateHasChanged();
+        await Task.Delay(10);
+
+        var cType = e.File.ContentType;
+        if( !(cType=="image/jpeg"
+            || cType == "image/png"
+            || cType == "image/bmp"))
+        {
+            message = "対応するファイル形式ではありません。";
+            isLoading = false;
+            return;
+        }
+
+        var file = e.File;
+        try
+        {
+            System.IO.MemoryStream ms = new System.IO.MemoryStream();
+            await file.OpenReadStream(maxFileSize).CopyToAsync(ms);
+            var image = Image.Load(ms.ToArray());
+            imageURI = image.ToBase64String(SixLabors.ImageSharp.Formats.Bmp.BmpFormat.Instance);
+        }
+        catch(Exception ex)
+        {
+            eMessage = "Error: " + ex.ToString();
+        }
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ProcessDetectCB()
+    {
+        if (string.IsNullOrEmpty(imageURI) || imageURI.Split(',').Length < 2)
+        {
+            eMessage = "画像が不正な可能性があります。再度、画像を読み込ませて下さい。";
+            return;
+        }
+
+        isProcessing = true;
+        isDone = false;
+        cb = string.Empty;
+        listCb = new List<string>();
+
+        await resultCanvasClient.ClearPixelAsync();
+        StateHasChanged();
+        await Task.Delay(10);
+
+        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
+        byte[] imageData = Convert.FromBase64String(imageBase64);
+        using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(imageData))
+        {
+            // canvasの高さを設定する
+            int wHeight = (int)(src.Height * 700 / src.Width);
+            canvasHeight = wHeight.ToString();
+            StateHasChanged();
+
+            List<PostalBarcodeReader.StructHit> listSHit;
+            var sw = new System.Diagnostics.Stopwatch();
+            PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, false);
+            if (listSHit.Count == 0)
+            {
+            }
+            else
+            {
+                this.matResult = src.Clone();
+                foreach (var data in listSHit)
+                {
+                    OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+                    cb = data.decoded;
+                    listCb.Add(cb);
+                    OpenCvSharp.Cv2.PutText(matResult, listCb.Count.ToString(), new OpenCvSharp.Point(data.line.x1, data.line.y1), OpenCvSharp.HersheyFonts.HersheyPlain, 4, new OpenCvSharp.Scalar(255, 0, 0), 3);
+                }
+                OpenCvSharp.Cv2.Resize(matResult, matResult, new OpenCvSharp.Size(700, wHeight));
+                await resultCanvasClient.DrawMatAsync(matResult);
+            }
+        }
+
+        isDone = true;
+        isProcessing = false;
+    }
+
+}
