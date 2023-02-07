@@ -209,7 +209,7 @@
         using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
         {
             OpenCvSharp.Mat dst = src.Clone();
-            var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+            var targetRect = new OpenCvSharp.Rect(0, src.Height / 5, src.Width, src.Height / 5 * 3);
 
             // Mask
             OpenCvSharp.Mat mask = OpenCvSharp.Mat.Zeros(src.Size(), src.Type());

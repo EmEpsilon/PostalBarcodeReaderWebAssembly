@@ -10,7 +10,7 @@
 
 <h3>カスタマバーコード　ファイル読み込み</h3>
 <p class="text-start">対応しているファイル形式は、jpeg png bmpです。</p>
-<p class="text-start">カスタマバーコードが大きく見える、明るい場所で撮影した画像を使用してください。</p>
+<p class="text-start">カスタマバーコードが大きく見える、明るい場所で撮影した画像を使用してください。縦または横の大きさが<span>@maxImageHeight</span>pxを超える場合は縮小します。</p>
 <InputFile class="form-control mb-3" OnChange="@UploadImage" accept="image/jpeg,image/png,image/bmp" />
 <!--
 <input id="upload_image" class="form-control mb-3" type="file" accept="image/jpeg,image/png,image/bmp" />
@@ -111,6 +111,8 @@ else if(!isProcessing && !isDone)
     private string message;
     private string canvasWidth = "700";
     private string canvasHeight = "700"; //仮
+    private int maxImageWidth = 1000;
+    private int maxImageHeight = 1000;
     private ElementReference resultCanvas;
     private CanvasClient? resultCanvasClient;
 
@@ -173,6 +175,23 @@ else if(!isProcessing && !isDone)
             System.IO.MemoryStream ms = new System.IO.MemoryStream();
             await file.OpenReadStream(maxFileSize).CopyToAsync(ms);
             var image = Image.Load(ms.ToArray());
+
+            if (image.Width > maxImageWidth || image.Height > maxImageHeight)
+            {
+                if (image.Width > image.Height)
+                {
+                    int width = maxImageWidth;
+                    int height = (int)(image.Height * ((double)maxImageWidth / image.Width));
+                    image.Mutate(x => x.Resize(width, height));
+                }
+                else
+                {
+                    int height = maxImageHeight;
+                    int width = (int)(image.Width * ((double)maxImageHeight / image.Height));
+                    image.Mutate(x => x.Resize(width, height));
+                }
+            }
+            
             imageURI = image.ToBase64String(SixLabors.ImageSharp.Formats.Bmp.BmpFormat.Instance);
         }
         catch(Exception ex)
@@ -211,7 +230,7 @@ else if(!isProcessing && !isDone)
 
             List<PostalBarcodeReader.StructHit> listSHit;
             var sw = new System.Diagnostics.Stopwatch();
-            PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, false);
+            PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, false, prmMaxOrientation: 7.1);
             if (listSHit.Count == 0)
             {
             }

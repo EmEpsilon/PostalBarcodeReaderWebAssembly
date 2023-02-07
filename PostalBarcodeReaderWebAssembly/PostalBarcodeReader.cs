@@ -134,8 +134,24 @@ namespace PostalBarcodeReaderWebAssembly
         {111, 18 },
     });
 
-        public static void DetectBarcodeAll(in OpenCvSharp.Mat src, out List<StructHit> rtnListSHit, bool singleDetectMode = false)
+        public static void DetectBarcodeAll(
+            in OpenCvSharp.Mat src
+            , out List<StructHit> rtnListSHit
+            , bool singleDetectMode = false
+            , int prmRowInterval = 10
+            , double prmMaxOrientation = 3.1
+            , double prmIntervalOrientation = 0.2
+            , double prmToleranceRateOfBarlength = 0.75
+            , double prmToleranceRateOfReadPoint = 0.65
+            )
         {
+            // パラメータの設定
+            g_RowInterval = prmRowInterval;
+            g_maxOrientation = prmMaxOrientation;
+            g_intervalOrientation = prmIntervalOrientation;
+            g_toleranceRateOfBarlength = prmToleranceRateOfBarlength;
+            g_toleranceRateOfReadPoint = prmToleranceRateOfReadPoint;
+
             // 検出結果の格納先
             var listSHit = new List<StructHit>();
 
@@ -207,8 +223,25 @@ namespace PostalBarcodeReaderWebAssembly
 
         }
 
-        public static void DetectBarcodeAll(in OpenCvSharp.Mat src, out List<StructHit> rtnListSHit, OpenCvSharp.Rect targetArea, bool singleDetectMode = false)
+        public static void DetectBarcodeAll(
+            in OpenCvSharp.Mat src
+            , out List<StructHit> rtnListSHit
+            , OpenCvSharp.Rect targetArea
+            , bool singleDetectMode = false
+            , int prmRowInterval = 10
+            , double prmMaxOrientation = 3.1
+            , double prmIntervalOrientation = 0.2
+            , double prmToleranceRateOfBarlength = 0.75
+            , double prmToleranceRateOfReadPoint = 0.65
+            )
         {
+            // パラメータの設定
+            g_RowInterval = prmRowInterval;
+            g_maxOrientation = prmMaxOrientation;
+            g_intervalOrientation = prmIntervalOrientation;
+            g_toleranceRateOfBarlength = prmToleranceRateOfBarlength;
+            g_toleranceRateOfReadPoint = prmToleranceRateOfReadPoint;
+
             // 検出結果の格納先
             var listSHit = new List<StructHit>();
 
