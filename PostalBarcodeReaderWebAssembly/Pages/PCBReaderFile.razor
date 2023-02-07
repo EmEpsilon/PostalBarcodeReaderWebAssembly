@@ -21,7 +21,7 @@
         <span class="text-nowrap">読み込み中…</span>
     </div>
 }
-else if(!isProcessing && !isDone)
+else if (!isProcessing && !isDone)
 {
     @if (!string.IsNullOrEmpty(imageURI))
     {
@@ -29,13 +29,13 @@ else if(!isProcessing && !isDone)
             <span class="text-nowrap">画像のプレビュー</span>
         </div>
         <img class="img-fluid" src="@imageURI" width="700" border="1" />
-        <div style="margin-top: 1em;" >
-            <button class="btn btn-primary mb-3" onclick="@(async () => await ProcessDetectCB())" >読み取り開始</button>
+        <div style="margin-top: 1em;">
+            <button class="btn btn-primary mb-3" onclick="@(async () => await ProcessDetectCB())">読み取り開始</button>
         </div>
     }
 }
 
-@if ( !isLoading )
+@if (!isLoading)
 {
     @if (isProcessing)
     {
@@ -51,24 +51,24 @@ else if(!isProcessing && !isDone)
             {
                 <table class="table">
                     <thead>
-                            <tr>
-                                <th scope="col">No.</th>
-                                <th scope="col">カスタマバーコードの内容</th>
-                                <th scope="col">郵便局の郵便番号情報(リンク)</th>
-                            </tr>
-                    </thead>
-                @for(int i=0; i<listCb.Count; i++)
-                {
-                    <tbody>
                         <tr>
-                            <th scope="row">@(i+1)</th>
-                            <td>@Utils.FormatCustomerBarcode(listCb[i])</td>
-                            <td>
-                                <a href="@Utils.GetPostalZipURL(listCb[i])" target="_blank" rel="noopener noreferrer">@Utils.GetFormatedZipCodeFromCustomerBarcode(listCb[i])</a>
-                            </td>
+                            <th scope="col">No.</th>
+                            <th scope="col">カスタマバーコードの内容</th>
+                            <th scope="col">郵便局の郵便番号情報(リンク)</th>
                         </tr>
-                    </tbody>
-                }
+                    </thead>
+                    @for (int i = 0; i < listCb.Count; i++)
+                    {
+                        <tbody>
+                            <tr>
+                                <th scope="row">@(i + 1)</th>
+                                <td>@Utils.FormatCustomerBarcode(listCb[i])</td>
+                                <td>
+                                    <a href="@Utils.GetPostalZipURL(listCb[i])" target="_blank" rel="noopener noreferrer">@Utils.GetFormatedZipCodeFromCustomerBarcode(listCb[i])</a>
+                                </td>
+                            </tr>
+                        </tbody>
+                    }
                 </table>
             }
             else
@@ -86,18 +86,19 @@ else if(!isProcessing && !isDone)
 </div>
 
 
-@if( !string.IsNullOrEmpty(message))
+@if (!string.IsNullOrEmpty(message))
 {
     <div class="alert alert-info">
         <span class="text-nowrap">@message</span>
     </div>
 }
-@if( !string.IsNullOrEmpty(eMessage))
+@if (!string.IsNullOrEmpty(eMessage))
 {
     <div class="alert alert-danger">
         <span class="text-nowrap">@eMessage</span>
     </div>
 }
+<canvas class="d-none" id="hiddenCanvas" width="700" height="700" />
 
 @code {
     private string imageURI;
@@ -111,8 +112,8 @@ else if(!isProcessing && !isDone)
     private string message;
     private string canvasWidth = "700";
     private string canvasHeight = "700"; //仮
-    private int maxImageWidth = 1000;
-    private int maxImageHeight = 1000;
+    private int maxImageWidth = 1400;
+    private int maxImageHeight = 1400;
     private ElementReference resultCanvas;
     private CanvasClient? resultCanvasClient;
 
@@ -159,6 +160,7 @@ else if(!isProcessing && !isDone)
         StateHasChanged();
         await Task.Delay(10);
 
+
         var cType = e.File.ContentType;
         if( !(cType=="image/jpeg"
             || cType == "image/png"
@@ -174,30 +176,41 @@ else if(!isProcessing && !isDone)
         {
             System.IO.MemoryStream ms = new System.IO.MemoryStream();
             await file.OpenReadStream(maxFileSize).CopyToAsync(ms);
-            var image = Image.Load(ms.ToArray());
 
-            if (image.Width > maxImageWidth || image.Height > maxImageHeight)
+            if( cType=="image/jpeg" )
             {
-                if (image.Width > image.Height)
-                {
-                    int width = maxImageWidth;
-                    int height = (int)(image.Height * ((double)maxImageWidth / image.Width));
-                    image.Mutate(x => x.Resize(width, height));
-                }
-                else
-                {
-                    int height = maxImageHeight;
-                    int width = (int)(image.Width * ((double)maxImageHeight / image.Height));
-                    image.Mutate(x => x.Resize(width, height));
-                }
+                imageURI = "data:image/jpeg;base64," + Convert.ToBase64String( ms.ToArray());
             }
-            
-            imageURI = image.ToBase64String(SixLabors.ImageSharp.Formats.Bmp.BmpFormat.Instance);
+            else if(cType=="image/png")
+            {
+                imageURI = "data:image/png;base64," + Convert.ToBase64String( ms.ToArray());
+            }
+            else if(cType=="image/bmp")
+            {
+                imageURI = "data:image/bmp;base64," + Convert.ToBase64String(ms.ToArray());
+            }
+            else
+            {
+                isLoading = false;
+                StateHasChanged();
+                return;
+            }
+
+            await JSRuntime.InvokeVoidAsync("loadImage", imageURI, "hiddenCanvas", maxImageWidth, maxImageHeight, DotNetObjectReference.Create(this));
+
         }
         catch(Exception ex)
         {
             eMessage = "Error: " + ex.ToString();
         }
+
+    }
+
+    [JSInvokable]
+    public async Task SetDataURL(string prmImageURI)
+    {
+        imageURI = prmImageURI;
+
         isLoading = false;
         StateHasChanged();
     }
@@ -219,33 +232,36 @@ else if(!isProcessing && !isDone)
         StateHasChanged();
         await Task.Delay(10);
 
-        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
+        var imageBase64 = imageURI.Remove(0, 22); // "data:image/png;base64,"を削除する
         byte[] imageData = Convert.FromBase64String(imageBase64);
-        using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(imageData))
+        using (System.IO.MemoryStream ms = new System.IO.MemoryStream())
         {
-            // canvasの高さを設定する
-            int wHeight = (int)(src.Height * 700 / src.Width);
-            canvasHeight = wHeight.ToString();
-            StateHasChanged();
+            Image.Load(imageData).SaveAsBmp(ms);
+            using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
+            {
+                // canvasの高さを設定する
+                int wHeight = (int)(src.Height * 700 / src.Width);
+                canvasHeight = wHeight.ToString();
+                StateHasChanged();
 
-            List<PostalBarcodeReader.StructHit> listSHit;
-            var sw = new System.Diagnostics.Stopwatch();
-            PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, false, prmMaxOrientation: 7.1);
-            if (listSHit.Count == 0)
-            {
-            }
-            else
-            {
-                this.matResult = src.Clone();
-                foreach (var data in listSHit)
+                List<PostalBarcodeReader.StructHit> listSHit;
+                PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, false, prmMaxOrientation: 5.1, prmRowInterval: 10);
+                if (listSHit.Count == 0)
                 {
-                    OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
-                    cb = data.decoded;
-                    listCb.Add(cb);
-                    OpenCvSharp.Cv2.PutText(matResult, listCb.Count.ToString(), new OpenCvSharp.Point(data.line.x1, data.line.y1), OpenCvSharp.HersheyFonts.HersheyPlain, 4, new OpenCvSharp.Scalar(255, 0, 0), 3);
                 }
-                OpenCvSharp.Cv2.Resize(matResult, matResult, new OpenCvSharp.Size(700, wHeight));
-                await resultCanvasClient.DrawMatAsync(matResult);
+                else
+                {
+                    this.matResult = src.Clone();
+                    foreach (var data in listSHit)
+                    {
+                        OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+                        cb = data.decoded;
+                        listCb.Add(cb);
+                        OpenCvSharp.Cv2.PutText(matResult, listCb.Count.ToString(), new OpenCvSharp.Point(data.line.x1, data.line.y1), OpenCvSharp.HersheyFonts.HersheyPlain, 4, new OpenCvSharp.Scalar(255, 0, 0), 3);
+                    }
+                    OpenCvSharp.Cv2.Resize(matResult, matResult, new OpenCvSharp.Size(700, wHeight));
+                    await resultCanvasClient.DrawMatAsync(matResult);
+                }
             }
         }
 
