@@ -17,10 +17,11 @@ namespace PostalBarcodeReaderWebAssembly
         // StartCode(1 * 2 Line) + Postcode(7*3) + Address(13 * 3) + CheckDigit(1 * 3) + StopCode(1 * 2)
         const int LINES = 67;
         public static int g_RowInterval = 10; //10
-        public static double g_maxOrientation = 3.1; //5.1
-        public static double g_intervalOrientation = 0.2; // 1.0
+        public static double g_maxOrientation = 3.1; //3.1
+        public static double g_intervalOrientation = 0.2; // 0.2
         public static double g_toleranceRateOfBarlength = 0.75; //最初と最後のバーの長さの許容率
         public static double g_toleranceRateOfReadPoint = 0.65; //読み取り点の位置の許容率
+        public static double g_toleranceRateOfBarInterval = 0.3; // バーの間隔の許容率
         public struct StructLine
         {
             public int x1;
@@ -143,6 +144,7 @@ namespace PostalBarcodeReaderWebAssembly
             , double prmIntervalOrientation = 0.2
             , double prmToleranceRateOfBarlength = 0.75
             , double prmToleranceRateOfReadPoint = 0.65
+            , double prmToleranceRateOfBarInterval = 0.3
             )
         {
             // パラメータの設定
@@ -151,6 +153,7 @@ namespace PostalBarcodeReaderWebAssembly
             g_intervalOrientation = prmIntervalOrientation;
             g_toleranceRateOfBarlength = prmToleranceRateOfBarlength;
             g_toleranceRateOfReadPoint = prmToleranceRateOfReadPoint;
+            g_toleranceRateOfBarInterval = prmToleranceRateOfBarInterval;
 
             // 検出結果の格納先
             var listSHit = new List<StructHit>();
@@ -233,6 +236,7 @@ namespace PostalBarcodeReaderWebAssembly
             , double prmIntervalOrientation = 0.2
             , double prmToleranceRateOfBarlength = 0.75
             , double prmToleranceRateOfReadPoint = 0.65
+            , double prmToleranceRateOfBarInterval = 0.3
             )
         {
             // パラメータの設定
@@ -241,6 +245,7 @@ namespace PostalBarcodeReaderWebAssembly
             g_intervalOrientation = prmIntervalOrientation;
             g_toleranceRateOfBarlength = prmToleranceRateOfBarlength;
             g_toleranceRateOfReadPoint = prmToleranceRateOfReadPoint;
+            g_toleranceRateOfBarInterval = prmToleranceRateOfBarInterval;
 
             // 検出結果の格納先
             var listSHit = new List<StructHit>();
@@ -400,9 +405,9 @@ namespace PostalBarcodeReaderWebAssembly
                         // バーコード判定
                         int wBarcodeStart = (wStartPos + wEndPos) / 2;
                         int wBarcodeEnd = -1;
-                        int wBarcodeDiff = (wStartPos2 + wEndPos2) / 2 - wBarcodeStart;
+                        int wBarcodeInterval = (wStartPos2 + wEndPos2) / 2 - wBarcodeStart;
                         //上記の差をそのまま使用すると、誤差が大きくなるので随時差を取得する。
-                        double wDiff = wBarcodeDiff;
+                        double wInterval = wBarcodeInterval;
 
                         int wCurrentStart = wStartPos;
                         int wCurrentEnd = wEndPos;
@@ -412,8 +417,8 @@ namespace PostalBarcodeReaderWebAssembly
                         bool isBarcode = true;
                         for (int j = 1; j < LINES; j++)
                         {
-                            wBarcodeDiff = (int)Math.Round(wDiff);
-                            int wTarget = (wCurrentStart + wCurrentEnd) / 2 + wBarcodeDiff;
+                            wBarcodeInterval = (int)Math.Round(wInterval);
+                            int wTarget = (wCurrentStart + wCurrentEnd) / 2 + wBarcodeInterval;
                             if (wTarget >= src.Cols)
                             {
                                 isBarcode = false;
@@ -429,14 +434,14 @@ namespace PostalBarcodeReaderWebAssembly
                             }
 
                             // 次のバーの位置が、現在のバーの位置からの差と一致するかチェック
-                            if (wTarget < wNextStart || wTarget > wNextEnd)
+                            if (wTarget < wNextStart - wInterval * g_toleranceRateOfBarInterval || wTarget > wNextEnd + wInterval * g_toleranceRateOfBarInterval)
                             {
                                 isBarcode = false;
                                 break;
                             }
 
                             // 問題がなければ、差分を登録する
-                            wDiff = (wDiff * j + (wNextStart + wNextEnd) / 2 - (wCurrentStart + wCurrentEnd) / 2) / (j + 1);
+                            wInterval = (wInterval * j + (wNextStart + wNextEnd) / 2 - (wCurrentStart + wCurrentEnd) / 2) / (j + 1);
 
                             // 次のバーを現在のバーとして登録
                             wCurrentStart = wNextStart;
