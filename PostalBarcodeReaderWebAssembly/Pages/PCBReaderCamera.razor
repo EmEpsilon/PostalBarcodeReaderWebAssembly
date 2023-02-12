@@ -137,6 +137,8 @@
         flgStopLoop = false;
         await JSRuntime.InvokeVoidAsync("setVideoSize", videoWidth, videoHeight);
         await JSRuntime.InvokeVoidAsync("startVideo", "videoID", DotNetObjectReference.Create(this));
+        await Task.Delay(500);
+        StateHasChanged();
         listTask = new List<Task>();
         listTask.Add(Task.Run(() => LoopProcess()));
     }
@@ -146,7 +148,7 @@
         while (true)
         {
             if (flgStopLoop) { break; }
-            await Task.Delay(10);
+            await Task.Delay(50);
             if (string.IsNullOrEmpty(cb))
             {
                 if (!isProcessing)
@@ -173,7 +175,7 @@
         await resultCanvasClient.ClearPixelAsync();
         cb = string.Empty;
         StateHasChanged();
-        await Task.Delay(10);
+        await Task.Delay(500);
     }
 
     [JSInvokable]
