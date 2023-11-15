@@ -37,18 +37,13 @@ main {
     }
 
 @media (max-width: 640.98px) {
-    .top-row:not(.auth) {
-        display: none;
-    }
-
-    .top-row.auth {
+    .top-row {
         justify-content: space-between;
     }
 
     .top-row ::deep a, .top-row ::deep .btn-link {
         margin-left: 0;
     }
-
 }
 
 @media (min-width: 641px) {
@@ -79,5 +74,4 @@ main {
         padding-left: 2rem !important;
         padding-right: 1.5rem !important;
     }
-
 }

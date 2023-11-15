@@ -233,7 +233,8 @@ else if (!isProcessing && !isDone)
         await Task.Delay(10);
 
         var imageBase64 = imageURI.Remove(0, 22); // "data:image/png;base64,"を削除する
-        byte[] imageData = Convert.FromBase64String(imageBase64);
+        //byte[] imageData = Convert.FromBase64String(imageBase64);
+        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
         using (System.IO.MemoryStream ms = new System.IO.MemoryStream())
         {
             Image.Load(imageData).SaveAsBmp(ms);

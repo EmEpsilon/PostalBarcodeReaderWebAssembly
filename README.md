@@ -7,12 +7,14 @@
 
 ## 使用しているライブラリ
 
-* .Net 7
+* .Net 8
 * [OpenCVSharp](https://github.com/shimat/opencvsharp)
   - 画像の加工や読み取り関係で使用
   - WebAssemblyを使用できるOpenCVSharpのNugetパッケージを利用
 * [ImageSharp](https://github.com/SixLabors/ImageSharp)
   - 内部的な画像変換で使用
+* [gfoidl.Base64](https://github.com/gfoidl/Base64)
+  - Base64のデコードで使用
 
 ## このプログラムが動いているサイト
 

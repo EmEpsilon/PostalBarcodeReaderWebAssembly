@@ -158,8 +158,8 @@ namespace PostalBarcodeReaderWebAssembly
             // 検出結果の格納先
             var listSHit = new List<StructHit>();
 
-            Size size = src.Size();
-            Point ptCenter = new Point(src.Cols / 2, src.Rows / 2);
+            OpenCvSharp.Size size = src.Size();
+            OpenCvSharp.Point ptCenter = new OpenCvSharp.Point(src.Cols / 2, src.Rows / 2);
             Mat srcCopy = src.Clone();
             Mat<byte> src8U = new Mat<byte>();
 
@@ -250,8 +250,8 @@ namespace PostalBarcodeReaderWebAssembly
             // 検出結果の格納先
             var listSHit = new List<StructHit>();
 
-            Size size = src.Size();
-            Point ptCenter = new Point(src.Cols / 2, src.Rows / 2);
+            OpenCvSharp.Size size = src.Size();
+            OpenCvSharp.Point ptCenter = new OpenCvSharp.Point(src.Cols / 2, src.Rows / 2);
             Mat srcCopy = new Mat(src, targetArea);
             Mat<byte> src8U = new Mat<byte>();
 
