@@ -4,7 +4,9 @@
 @using SixLabors.ImageSharp.Drawing.Processing
 @using SixLabors.ImageSharp.Processing;
 @using SixLabors.ImageSharp.Formats.Jpeg
+@using Microsoft.AspNetCore.Components.WebAssembly.Hosting
 @inject IJSRuntime JSRuntime
+@inject IWebAssemblyHostEnvironment HostEnvironment
 @implements IDisposable
 @implements IAsyncDisposable
 
@@ -44,6 +46,12 @@
     <button class="btn btn-primary mb-3" @onclick="ChangeVideoMode">カメラモード(リア・フェイス)切り替え</button>
     <button class="btn btn-secondary mb-3" @onclick="Rescan">再読取り</button>
 </div>
+@if (isDebugMode)
+{
+    <div class="alert alert-secondary py-2">
+        <span>読取りFPS: @currentFps.ToString("F1")</span>
+    </div>
+}
 <canvas class="d-none" id="currentFrame" width="@videoWidth" height="@videoHeight" />
 
 
@@ -71,6 +79,9 @@
 
     private string videoWidth = "800";
     private string videoHeight = "600";
+    private DateTime fpsWindowStartedUtc = DateTime.UtcNow;
+    private int processedFrameCount;
+    private double currentFps;
 
     public void Dispose()
     {
@@ -123,6 +134,8 @@
         }
     }
 
+    private bool isDebugMode => HostEnvironment.IsDevelopment();
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await base.OnAfterRenderAsync(firstRender);
@@ -174,8 +187,33 @@
     {
         await resultCanvasClient.ClearPixelAsync();
         cb = string.Empty;
+        ResetFps();
         StateHasChanged();
         await Task.Delay(500);
+    }
+
+    private void ResetFps()
+    {
+        fpsWindowStartedUtc = DateTime.UtcNow;
+        processedFrameCount = 0;
+        currentFps = 0;
+    }
+
+    private void UpdateFps()
+    {
+        if (!isDebugMode)
+        {
+            return;
+        }
+
+        processedFrameCount++;
+        var elapsedSeconds = (DateTime.UtcNow - fpsWindowStartedUtc).TotalSeconds;
+        if (elapsedSeconds >= 1)
+        {
+            currentFps = processedFrameCount / elapsedSeconds;
+            fpsWindowStartedUtc = DateTime.UtcNow;
+            processedFrameCount = 0;
+        }
     }
 
     [JSInvokable]
@@ -269,6 +307,7 @@
         });
 
         await wTask;
+        UpdateFps();
 
         StateHasChanged();
         isProcessing = false;
