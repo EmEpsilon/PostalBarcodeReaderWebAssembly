@@ -1,9 +1,5 @@
 ﻿@page "/pcb-reader-camera"
 @using SixLabors.ImageSharp
-@using SixLabors.ImageSharp.Drawing
-@using SixLabors.ImageSharp.Drawing.Processing
-@using SixLabors.ImageSharp.Processing;
-@using SixLabors.ImageSharp.Formats.Jpeg
 @using Microsoft.AspNetCore.Components.WebAssembly.Hosting
 @inject IJSRuntime JSRuntime
 @inject IWebAssemblyHostEnvironment HostEnvironment
@@ -76,6 +72,7 @@
     private ElementReference displayCanvas;
     private CanvasClient? displayCanvasClient;
     private List<Task> listTask;
+    private DotNetObjectReference<PCBReaderCamera>? dotNetRef;
 
     private string videoWidth = "800";
     private string videoHeight = "600";
@@ -86,13 +83,28 @@
     public void Dispose()
     {
         matResult?.Dispose();
+        dotNetRef?.Dispose();
     }
 
     public async ValueTask DisposeAsync()
     {
         flgStopLoop = true;
-        Task.WhenAll(listTask);
-        await JSRuntime.InvokeVoidAsync("stopVideo");
+        try
+        {
+            if (listTask is not null && listTask.Count > 0)
+            {
+                await Task.WhenAll(listTask);
+            }
+        }
+        catch
+        {
+            // stopVideo を確実に実行するため、Loop 側の例外はここでは握りつぶす。
+        }
+        finally
+        {
+            dotNetRef?.Dispose();
+            await JSRuntime.InvokeVoidAsync("stopVideo");
+        }
     }
 
     private string canvasDisplay
@@ -148,8 +160,9 @@
     {
         await base.OnInitializedAsync();
         flgStopLoop = false;
+        dotNetRef = DotNetObjectReference.Create(this);
         await JSRuntime.InvokeVoidAsync("setVideoSize", videoWidth, videoHeight);
-        await JSRuntime.InvokeVoidAsync("startVideo", "videoID", DotNetObjectReference.Create(this));
+        await JSRuntime.InvokeVoidAsync("startVideo", "videoID", dotNetRef);
         await Task.Delay(500);
         StateHasChanged();
         listTask = new List<Task>();
@@ -167,7 +180,7 @@
                 if (!isProcessing)
                 {
                     isProcessing = true;
-                    await JSRuntime.InvokeVoidAsync("getVideoFrame", "currentFrame", DotNetObjectReference.Create(this));
+                    await JSRuntime.InvokeVoidAsync("getVideoFrame", "currentFrame", dotNetRef);
                 }
                 if (!isProcessingForDisplay)
                 {
@@ -180,7 +193,7 @@
 
     private async Task ChangeVideoMode()
     {
-        await JSRuntime.InvokeVoidAsync("changeVideoMode", "videoID", DotNetObjectReference.Create(this));
+        await JSRuntime.InvokeVoidAsync("changeVideoMode", "videoID", dotNetRef);
     }
 
     private async Task Rescan()
@@ -241,14 +254,9 @@
             return;
         }
 
-        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
-
-        //byte[] imageData = Convert.FromBase64String(imageBase64);
-        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
-        System.IO.MemoryStream ms = new System.IO.MemoryStream();
-        Image.Load(imageData).SaveAsBmp(ms);
-        using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
+        try
         {
+            using var src = DecodeImageToMat(imageURI);
             OpenCvSharp.Mat dst = src.Clone();
             var targetRect = new OpenCvSharp.Rect(0, src.Height / 5, src.Width, src.Height / 5 * 3);
 
@@ -260,6 +268,45 @@
 
             OpenCvSharp.Cv2.Line(dst, new OpenCvSharp.Point(0, dst.Rows / 2), new OpenCvSharp.Point(dst.Cols, dst.Rows / 2), new OpenCvSharp.Scalar(0, 0, 255), 2);
             await displayCanvasClient.DrawMatAsync(dst);
+        }
+        catch (Exception ex)
+        {
+            message = $"プレビュー生成エラー: {ex.Message}";
+        }
+
+        StateHasChanged();
+        isProcessingForDisplay = false;
+    }
+
+    [JSInvokable]
+    public async Task DisplayImageRaw(int width, int height, byte[] rgbaBytes)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessingForDisplay = false;
+            return;
+        }
+
+        try
+        {
+            using var srcRgba = new OpenCvSharp.Mat(height, width, OpenCvSharp.MatType.CV_8UC4, rgbaBytes);
+            using var srcBgr = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(srcRgba, srcBgr, OpenCvSharp.ColorConversionCodes.RGBA2BGR);
+
+            OpenCvSharp.Mat dst = srcBgr.Clone();
+            var targetRect = new OpenCvSharp.Rect(0, dst.Height / 5, dst.Width, dst.Height / 5 * 3);
+
+            OpenCvSharp.Mat mask = OpenCvSharp.Mat.Zeros(dst.Size(), dst.Type());
+            mask += new OpenCvSharp.Scalar(200, 200, 200);
+            OpenCvSharp.Cv2.Rectangle(mask, targetRect, new OpenCvSharp.Scalar(0, 0, 0), -1);
+            dst -= mask / 2;
+
+            OpenCvSharp.Cv2.Line(dst, new OpenCvSharp.Point(0, dst.Rows / 2), new OpenCvSharp.Point(dst.Cols, dst.Rows / 2), new OpenCvSharp.Scalar(0, 0, 255), 2);
+            await displayCanvasClient.DrawMatAsync(dst);
+        }
+        catch (Exception ex)
+        {
+            message = $"プレビュー生成エラー(raw): {ex.Message}";
         }
 
         StateHasChanged();
@@ -275,42 +322,91 @@
             return;
         }
 
-        var wTask = Task.Run<bool>(async () =>
+        try
         {
+            using var src = DecodeImageToMat(imageURI);
+            await DetectAndRenderAsync(src);
+        }
+        catch (Exception ex)
+        {
+            message = $"読取り処理エラー: {ex.Message}";
+        }
+        finally
+        {
+            UpdateFps();
+            StateHasChanged();
+            isProcessing = false;
+        }
+    }
 
-            var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
+    [JSInvokable]
+    public async Task ProcessImageRaw(int width, int height, byte[] rgbaBytes)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessing = false;
+            return;
+        }
 
-            //byte[] imageData = Convert.FromBase64String(imageBase64);
-            byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
-            System.IO.MemoryStream ms = new System.IO.MemoryStream();
-            Image.Load(imageData).SaveAsBmp(ms);
-            using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
-            {
-                List<PostalBarcodeReader.StructHit> listSHit;
-                var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
-                PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
-                if (listSHit.Count == 0)
-                {
-                }
-                else
-                {
-                    this.matResult = src.Clone();
-                    foreach (var data in listSHit)
-                    {
-                        OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
-                        cb = data.decoded;
-                    }
-                    await resultCanvasClient.DrawMatAsync(matResult);
-                }
-            }
-            return true;
-        });
+        try
+        {
+            using var srcRgba = new OpenCvSharp.Mat(height, width, OpenCvSharp.MatType.CV_8UC4, rgbaBytes);
+            using var srcBgr = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(srcRgba, srcBgr, OpenCvSharp.ColorConversionCodes.RGBA2BGR);
+            await DetectAndRenderAsync(srcBgr);
+        }
+        catch (Exception ex)
+        {
+            message = $"読取り処理エラー(raw): {ex.Message}";
+        }
+        finally
+        {
+            UpdateFps();
+            StateHasChanged();
+            isProcessing = false;
+        }
+    }
 
-        await wTask;
-        UpdateFps();
+    private async Task DetectAndRenderAsync(OpenCvSharp.Mat src)
+    {
+        List<PostalBarcodeReader.StructHit> listSHit;
+        var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+        PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
+        if (listSHit.Count == 0)
+        {
+            return;
+        }
 
-        StateHasChanged();
-        isProcessing = false;
+        this.matResult = src.Clone();
+        foreach (var data in listSHit)
+        {
+            OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+            cb = data.decoded;
+        }
+        await resultCanvasClient.DrawMatAsync(matResult);
+    }
+
+    private static OpenCvSharp.Mat DecodeImageToMat(string imageURI)
+    {
+        var commaIndex = imageURI.IndexOf(',');
+        if (commaIndex < 0 || commaIndex == imageURI.Length - 1)
+        {
+            throw new InvalidOperationException("画像データの形式が不正です。");
+        }
+
+        var imageBase64 = imageURI.Substring(commaIndex + 1);
+        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
+
+        var mat = OpenCvSharp.Cv2.ImDecode(imageData, OpenCvSharp.ImreadModes.Color);
+        if (!mat.Empty())
+        {
+            return mat;
+        }
+        mat.Dispose();
+
+        using var ms = new System.IO.MemoryStream();
+        Image.Load(imageData).SaveAsBmp(ms);
+        return OpenCvSharp.Mat.FromImageData(ms.ToArray());
     }
 
 }
