@@ -269,6 +269,41 @@
     }
 
     [JSInvokable]
+    public async Task DisplayImageRaw(int width, int height, byte[] rgbaBytes)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessingForDisplay = false;
+            return;
+        }
+
+        try
+        {
+            using var srcRgba = new OpenCvSharp.Mat(height, width, OpenCvSharp.MatType.CV_8UC4, rgbaBytes);
+            using var srcBgr = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(srcRgba, srcBgr, OpenCvSharp.ColorConversionCodes.RGBA2BGR);
+
+            OpenCvSharp.Mat dst = srcBgr.Clone();
+            var targetRect = new OpenCvSharp.Rect(0, dst.Height / 5, dst.Width, dst.Height / 5 * 3);
+
+            OpenCvSharp.Mat mask = OpenCvSharp.Mat.Zeros(dst.Size(), dst.Type());
+            mask += new OpenCvSharp.Scalar(200, 200, 200);
+            OpenCvSharp.Cv2.Rectangle(mask, targetRect, new OpenCvSharp.Scalar(0, 0, 0), -1);
+            dst -= mask / 2;
+
+            OpenCvSharp.Cv2.Line(dst, new OpenCvSharp.Point(0, dst.Rows / 2), new OpenCvSharp.Point(dst.Cols, dst.Rows / 2), new OpenCvSharp.Scalar(0, 0, 255), 2);
+            await displayCanvasClient.DrawMatAsync(dst);
+        }
+        catch (Exception ex)
+        {
+            message = $"プレビュー生成エラー(raw): {ex.Message}";
+        }
+
+        StateHasChanged();
+        isProcessingForDisplay = false;
+    }
+
+    [JSInvokable]
     public async Task ProcessImage(string imageURI)
     {
         if (!string.IsNullOrEmpty(cb))
@@ -280,22 +315,7 @@
         try
         {
             using var src = DecodeImageToMat(imageURI);
-            List<PostalBarcodeReader.StructHit> listSHit;
-            var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
-            PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
-            if (listSHit.Count == 0)
-            {
-            }
-            else
-            {
-                this.matResult = src.Clone();
-                foreach (var data in listSHit)
-                {
-                    OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
-                    cb = data.decoded;
-                }
-                await resultCanvasClient.DrawMatAsync(matResult);
-            }
+            await DetectAndRenderAsync(src);
         }
         catch (Exception ex)
         {
@@ -307,6 +327,53 @@
             StateHasChanged();
             isProcessing = false;
         }
+    }
+
+    [JSInvokable]
+    public async Task ProcessImageRaw(int width, int height, byte[] rgbaBytes)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessing = false;
+            return;
+        }
+
+        try
+        {
+            using var srcRgba = new OpenCvSharp.Mat(height, width, OpenCvSharp.MatType.CV_8UC4, rgbaBytes);
+            using var srcBgr = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(srcRgba, srcBgr, OpenCvSharp.ColorConversionCodes.RGBA2BGR);
+            await DetectAndRenderAsync(srcBgr);
+        }
+        catch (Exception ex)
+        {
+            message = $"読取り処理エラー(raw): {ex.Message}";
+        }
+        finally
+        {
+            UpdateFps();
+            StateHasChanged();
+            isProcessing = false;
+        }
+    }
+
+    private async Task DetectAndRenderAsync(OpenCvSharp.Mat src)
+    {
+        List<PostalBarcodeReader.StructHit> listSHit;
+        var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+        PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
+        if (listSHit.Count == 0)
+        {
+            return;
+        }
+
+        this.matResult = src.Clone();
+        foreach (var data in listSHit)
+        {
+            OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+            cb = data.decoded;
+        }
+        await resultCanvasClient.DrawMatAsync(matResult);
     }
 
     private static OpenCvSharp.Mat DecodeImageToMat(string imageURI)
