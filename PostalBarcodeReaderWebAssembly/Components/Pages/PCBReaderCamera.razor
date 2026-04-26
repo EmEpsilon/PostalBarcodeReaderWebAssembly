@@ -167,7 +167,7 @@
                 if (!isProcessing)
                 {
                     isProcessing = true;
-                    await JSRuntime.InvokeVoidAsync("getVideoFrame", "currentFrame", DotNetObjectReference.Create(this));
+                    await JSRuntime.InvokeVoidAsync("getVideoFrameRaw", "currentFrame", DotNetObjectReference.Create(this));
                 }
                 if (!isProcessingForDisplay)
                 {
@@ -264,6 +264,51 @@
 
         StateHasChanged();
         isProcessingForDisplay = false;
+    }
+
+    [JSInvokable]
+    public async Task ProcessImageRaw(byte[] rgbaBytes, int width, int height)
+    {
+        if (!string.IsNullOrEmpty(cb))
+        {
+            isProcessing = false;
+            return;
+        }
+
+        var wTask = Task.Run<bool>(async () =>
+        {
+            unsafe
+            {
+                fixed (byte* ptr = rgbaBytes)
+                {
+                    using (var srcRgba = new OpenCvSharp.Mat(height, width, OpenCvSharp.MatType.CV_8UC4, (nint)ptr))
+                    using (var src = new OpenCvSharp.Mat())
+                    {
+                        OpenCvSharp.Cv2.CvtColor(srcRgba, src, OpenCvSharp.ColorConversionCodes.RGBA2BGR);
+                        List<PostalBarcodeReader.StructHit> listSHit;
+                        var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+                        PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
+                        if (listSHit.Count != 0)
+                        {
+                            this.matResult = src.Clone();
+                            foreach (var data in listSHit)
+                            {
+                                OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+                                cb = data.decoded;
+                            }
+                            await resultCanvasClient.DrawMatAsync(matResult);
+                        }
+                    }
+                }
+            }
+            return true;
+        });
+
+        await wTask;
+        UpdateFps();
+
+        StateHasChanged();
+        isProcessing = false;
     }
 
     [JSInvokable]
