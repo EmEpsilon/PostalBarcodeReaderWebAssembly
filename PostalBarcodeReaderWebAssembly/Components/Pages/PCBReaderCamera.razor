@@ -1,9 +1,4 @@
 ﻿@page "/pcb-reader-camera"
-@using SixLabors.ImageSharp
-@using SixLabors.ImageSharp.Drawing
-@using SixLabors.ImageSharp.Drawing.Processing
-@using SixLabors.ImageSharp.Processing;
-@using SixLabors.ImageSharp.Formats.Jpeg
 @using Microsoft.AspNetCore.Components.WebAssembly.Hosting
 @inject IJSRuntime JSRuntime
 @inject IWebAssemblyHostEnvironment HostEnvironment
@@ -76,6 +71,7 @@
     private ElementReference displayCanvas;
     private CanvasClient? displayCanvasClient;
     private List<Task> listTask;
+    private DotNetObjectReference<PCBReaderCamera>? dotNetRef;
 
     private string videoWidth = "800";
     private string videoHeight = "600";
@@ -86,12 +82,17 @@
     public void Dispose()
     {
         matResult?.Dispose();
+        dotNetRef?.Dispose();
     }
 
     public async ValueTask DisposeAsync()
     {
         flgStopLoop = true;
-        Task.WhenAll(listTask);
+        if (listTask is not null && listTask.Count > 0)
+        {
+            await Task.WhenAll(listTask);
+        }
+        dotNetRef?.Dispose();
         await JSRuntime.InvokeVoidAsync("stopVideo");
     }
 
@@ -148,8 +149,9 @@
     {
         await base.OnInitializedAsync();
         flgStopLoop = false;
+        dotNetRef = DotNetObjectReference.Create(this);
         await JSRuntime.InvokeVoidAsync("setVideoSize", videoWidth, videoHeight);
-        await JSRuntime.InvokeVoidAsync("startVideo", "videoID", DotNetObjectReference.Create(this));
+        await JSRuntime.InvokeVoidAsync("startVideo", "videoID", dotNetRef);
         await Task.Delay(500);
         StateHasChanged();
         listTask = new List<Task>();
@@ -167,7 +169,7 @@
                 if (!isProcessing)
                 {
                     isProcessing = true;
-                    await JSRuntime.InvokeVoidAsync("getVideoFrame", "currentFrame", DotNetObjectReference.Create(this));
+                    await JSRuntime.InvokeVoidAsync("getVideoFrame", "currentFrame", dotNetRef);
                 }
                 if (!isProcessingForDisplay)
                 {
@@ -180,7 +182,7 @@
 
     private async Task ChangeVideoMode()
     {
-        await JSRuntime.InvokeVoidAsync("changeVideoMode", "videoID", DotNetObjectReference.Create(this));
+        await JSRuntime.InvokeVoidAsync("changeVideoMode", "videoID", dotNetRef);
     }
 
     private async Task Rescan()
@@ -245,9 +247,7 @@
 
         //byte[] imageData = Convert.FromBase64String(imageBase64);
         byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
-        System.IO.MemoryStream ms = new System.IO.MemoryStream();
-        Image.Load(imageData).SaveAsBmp(ms);
-        using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
+        using (OpenCvSharp.Mat src = OpenCvSharp.Cv2.ImDecode(imageData, OpenCvSharp.ImreadModes.Color))
         {
             OpenCvSharp.Mat dst = src.Clone();
             var targetRect = new OpenCvSharp.Rect(0, src.Height / 5, src.Width, src.Height / 5 * 3);
@@ -275,38 +275,29 @@
             return;
         }
 
-        var wTask = Task.Run<bool>(async () =>
+        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
+
+        //byte[] imageData = Convert.FromBase64String(imageBase64);
+        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
+        using (OpenCvSharp.Mat src = OpenCvSharp.Cv2.ImDecode(imageData, OpenCvSharp.ImreadModes.Color))
         {
-
-            var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
-
-            //byte[] imageData = Convert.FromBase64String(imageBase64);
-            byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
-            System.IO.MemoryStream ms = new System.IO.MemoryStream();
-            Image.Load(imageData).SaveAsBmp(ms);
-            using (OpenCvSharp.Mat src = OpenCvSharp.Mat.FromImageData(ms.ToArray()))
+            List<PostalBarcodeReader.StructHit> listSHit;
+            var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
+            PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
+            if (listSHit.Count == 0)
             {
-                List<PostalBarcodeReader.StructHit> listSHit;
-                var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
-                PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
-                if (listSHit.Count == 0)
-                {
-                }
-                else
-                {
-                    this.matResult = src.Clone();
-                    foreach (var data in listSHit)
-                    {
-                        OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
-                        cb = data.decoded;
-                    }
-                    await resultCanvasClient.DrawMatAsync(matResult);
-                }
             }
-            return true;
-        });
-
-        await wTask;
+            else
+            {
+                this.matResult = src.Clone();
+                foreach (var data in listSHit)
+                {
+                    OpenCvSharp.Cv2.Line(matResult, new OpenCvSharp.Point(data.line.x1, data.line.y1), new OpenCvSharp.Point(data.line.x2, data.line.y2), new OpenCvSharp.Scalar(0, 0, 255), 3);
+                    cb = data.decoded;
+                }
+                await resultCanvasClient.DrawMatAsync(matResult);
+            }
+        }
         UpdateFps();
 
         StateHasChanged();
