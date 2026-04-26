@@ -100,6 +100,24 @@ a, .btn-link {
         content: var(--blazor-load-percentage-text, "Loading");
     }
 
+.loading-progress-text.load-failed {
+    position: static;
+    max-width: 32rem;
+    margin: 1rem auto;
+    padding: 0 1rem;
+    color: #b32121;
+    line-height: 1.6;
+}
+
+.loading-progress-text.load-failed:after {
+    content: none;
+}
+
+.loading-progress-text.load-failed a {
+    color: #0071c1;
+    text-decoration: underline;
+}
+
 code {
     color: #c02d76;
 }
