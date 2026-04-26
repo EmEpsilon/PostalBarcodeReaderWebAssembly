@@ -89,12 +89,22 @@
     public async ValueTask DisposeAsync()
     {
         flgStopLoop = true;
-        if (listTask is not null && listTask.Count > 0)
+        try
         {
-            await Task.WhenAll(listTask);
+            if (listTask is not null && listTask.Count > 0)
+            {
+                await Task.WhenAll(listTask);
+            }
         }
-        dotNetRef?.Dispose();
-        await JSRuntime.InvokeVoidAsync("stopVideo");
+        catch
+        {
+            // stopVideo を確実に実行するため、Loop 側の例外はここでは握りつぶす。
+        }
+        finally
+        {
+            dotNetRef?.Dispose();
+            await JSRuntime.InvokeVoidAsync("stopVideo");
+        }
     }
 
     private string canvasDisplay
@@ -392,6 +402,7 @@
         {
             return mat;
         }
+        mat.Dispose();
 
         using var ms = new System.IO.MemoryStream();
         Image.Load(imageData).SaveAsBmp(ms);
