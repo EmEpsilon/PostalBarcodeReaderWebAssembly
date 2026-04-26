@@ -72,17 +72,3 @@ function getVideoFrame(canvasElement, dotNetHelper) {
     var data = canvas.toDataURL('image/png');
     dotNetHelper.invokeMethodAsync("ProcessImage", data);
 }
-
-function getVideoFrameRaw(canvasElement, dotNetHelper) {
-    if (videoElement == null) {
-        dotNetHelper.invokeMethodAsync("TrunOffProcessing");
-        return null;
-    }
-
-    const canvas = document.getElementById(canvasElement);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const bytes = new Uint8Array(imageData.data.buffer);
-    dotNetHelper.invokeMethodAsync("ProcessImageRaw", bytes, canvas.width, canvas.height);
-}
