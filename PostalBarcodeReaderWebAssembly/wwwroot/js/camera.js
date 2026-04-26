@@ -56,9 +56,11 @@ function getVideoFrameForDisplay(canvasElement, dotNetHelper) {
     }
 
     var canvas = document.getElementById(canvasElement);
-    canvas.getContext('2d').drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-    var data = canvas.toDataURL('image/png');
-    dotNetHelper.invokeMethodAsync("DisplayImage", data);
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var rgbaBytes = new Uint8Array(imageData.data.buffer);
+    dotNetHelper.invokeMethodAsync("DisplayImageRaw", canvas.width, canvas.height, rgbaBytes);
 }
 
 function getVideoFrame(canvasElement, dotNetHelper) {
@@ -68,7 +70,9 @@ function getVideoFrame(canvasElement, dotNetHelper) {
     }
 
     var canvas = document.getElementById(canvasElement);
-    canvas.getContext('2d').drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-    var data = canvas.toDataURL('image/png');
-    dotNetHelper.invokeMethodAsync("ProcessImage", data);
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var rgbaBytes = new Uint8Array(imageData.data.buffer);
+    dotNetHelper.invokeMethodAsync("ProcessImageRaw", canvas.width, canvas.height, rgbaBytes);
 }

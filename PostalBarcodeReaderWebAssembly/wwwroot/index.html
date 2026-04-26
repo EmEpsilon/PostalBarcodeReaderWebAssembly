@@ -20,17 +20,42 @@
         </svg>
         <div class="loading-progress-text"></div>
     </div>
-    <div class="container">
-      <hr class="hr"/>
-      <p class="text-start">うまく読み込めない場合は、ブラウザのキャッシュをクリアして、再読み込みしてください。</p>
-    </div>
 
     <div id="blazor-error-ui">
         An unhandled error has occurred.
         <a href="" class="reload">Reload</a>
         <a class="dismiss">🗙</a>
     </div>
-    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
+    <script>
+        (() => {
+            const loadingProgress = document.querySelector('.loading-progress');
+            const loadingText = document.querySelector('.loading-progress-text');
+
+            const showLoadError = () => {
+                if (!loadingText) {
+                    return;
+                }
+
+                loadingProgress?.setAttribute('hidden', 'hidden');
+                loadingText.classList.add('load-failed');
+                loadingText.innerHTML = '読み込みに失敗しました。<br />ページを再読み込みしてもう一度お試しください。<br /><a href="" onclick="location.reload(); return false;">ページを再読み込みする</a>';
+            };
+
+            window.addEventListener('error', (event) => {
+                const target = event.target;
+                if (target instanceof HTMLScriptElement && target.src.includes('_framework/blazor.webassembly.js')) {
+                    showLoadError();
+                }
+            }, true);
+
+            if (window.Blazor?.start) {
+                window.Blazor.start().catch(() => showLoadError());
+            } else {
+                showLoadError();
+            }
+        })();
+    </script>
     <script src="/js/canvas.js"></script>
     <script src="/js/camera.js"></script>
     <script src="/js/file.js"></script>
