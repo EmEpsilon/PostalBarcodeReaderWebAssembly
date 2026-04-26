@@ -1,4 +1,5 @@
 ﻿@page "/pcb-reader-camera"
+@using SixLabors.ImageSharp
 @using Microsoft.AspNetCore.Components.WebAssembly.Hosting
 @inject IJSRuntime JSRuntime
 @inject IWebAssemblyHostEnvironment HostEnvironment
@@ -243,12 +244,9 @@
             return;
         }
 
-        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
-
-        //byte[] imageData = Convert.FromBase64String(imageBase64);
-        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
-        using (OpenCvSharp.Mat src = OpenCvSharp.Cv2.ImDecode(imageData, OpenCvSharp.ImreadModes.Color))
+        try
         {
+            using var src = DecodeImageToMat(imageURI);
             OpenCvSharp.Mat dst = src.Clone();
             var targetRect = new OpenCvSharp.Rect(0, src.Height / 5, src.Width, src.Height / 5 * 3);
 
@@ -260,6 +258,10 @@
 
             OpenCvSharp.Cv2.Line(dst, new OpenCvSharp.Point(0, dst.Rows / 2), new OpenCvSharp.Point(dst.Cols, dst.Rows / 2), new OpenCvSharp.Scalar(0, 0, 255), 2);
             await displayCanvasClient.DrawMatAsync(dst);
+        }
+        catch (Exception ex)
+        {
+            message = $"プレビュー生成エラー: {ex.Message}";
         }
 
         StateHasChanged();
@@ -275,12 +277,9 @@
             return;
         }
 
-        var imageBase64 = imageURI.Remove(0, 22); // "data:image/bmp;base64,"を削除する
-
-        //byte[] imageData = Convert.FromBase64String(imageBase64);
-        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
-        using (OpenCvSharp.Mat src = OpenCvSharp.Cv2.ImDecode(imageData, OpenCvSharp.ImreadModes.Color))
+        try
         {
+            using var src = DecodeImageToMat(imageURI);
             List<PostalBarcodeReader.StructHit> listSHit;
             var targetRect = new OpenCvSharp.Rect(0, src.Height / 4, src.Width, src.Height / 4 * 2);
             PostalBarcodeReader.DetectBarcodeAll(src, out listSHit, targetRect, true);
@@ -298,10 +297,38 @@
                 await resultCanvasClient.DrawMatAsync(matResult);
             }
         }
-        UpdateFps();
+        catch (Exception ex)
+        {
+            message = $"読取り処理エラー: {ex.Message}";
+        }
+        finally
+        {
+            UpdateFps();
+            StateHasChanged();
+            isProcessing = false;
+        }
+    }
 
-        StateHasChanged();
-        isProcessing = false;
+    private static OpenCvSharp.Mat DecodeImageToMat(string imageURI)
+    {
+        var commaIndex = imageURI.IndexOf(',');
+        if (commaIndex < 0 || commaIndex == imageURI.Length - 1)
+        {
+            throw new InvalidOperationException("画像データの形式が不正です。");
+        }
+
+        var imageBase64 = imageURI.Substring(commaIndex + 1);
+        byte[] imageData = gfoidl.Base64.Base64.Default.Decode(imageBase64);
+
+        var mat = OpenCvSharp.Cv2.ImDecode(imageData, OpenCvSharp.ImreadModes.Color);
+        if (!mat.Empty())
+        {
+            return mat;
+        }
+
+        using var ms = new System.IO.MemoryStream();
+        Image.Load(imageData).SaveAsBmp(ms);
+        return OpenCvSharp.Mat.FromImageData(ms.ToArray());
     }
 
 }
